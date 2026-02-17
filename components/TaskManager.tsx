@@ -12,17 +12,23 @@ export function TaskManager() {
     const [tasks, setTasks] = useState<Task[]>([])
     const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null)
 
-    // Task Creation
+
+    // Task Creation/Selection
     const [newTaskName, setNewTaskName] = useState('')
     const [selectedProjectId, setSelectedProjectId] = useState<string>('')
+    const [selectedTaskId, setSelectedTaskId] = useState<string>('')
 
     // Timer Local State
     const [elapsed, setElapsed] = useState(0)
 
     useEffect(() => {
         fetchData()
-        // Subscribe to realtime changes could go here
     }, [])
+
+    useEffect(() => {
+        // Reset selected task when project changes
+        setSelectedTaskId('')
+    }, [selectedProjectId])
 
     useEffect(() => {
         let interval: NodeJS.Timeout
@@ -55,16 +61,28 @@ export function TaskManager() {
         if (entriesData && entriesData.length > 0) setActiveEntry(entriesData[0])
     }
 
-    async function addTask() {
-        if (!newTaskName.trim() || !selectedProjectId) return
-        const { data } = await supabase.from('tasks').insert([{
-            project_id: selectedProjectId,
-            name: newTaskName
-        }]).select()
+    async function handleStart() {
+        if (!selectedProjectId) return
 
-        if (data) {
-            setTasks([...tasks, data[0]])
-            setNewTaskName('')
+        let taskId = selectedTaskId
+
+        // If no existing task selected, but name provided -> Create new
+        if (!taskId && newTaskName.trim()) {
+            const { data } = await supabase.from('tasks').insert([{
+                project_id: selectedProjectId,
+                name: newTaskName.trim()
+            }]).select()
+
+            if (data) {
+                setTasks([...tasks, data[0]])
+                taskId = data[0].id
+                setNewTaskName('')
+            }
+        }
+
+        if (taskId) {
+            await startTimer(taskId)
+            setSelectedTaskId('') // Reset selection after start
         }
     }
 
@@ -99,6 +117,8 @@ export function TaskManager() {
         return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
     }
 
+    const projectTasks = tasks.filter(t => t.project_id === selectedProjectId)
+
     return (
         <div className="space-y-6">
             {/* Active Timer Banner */}
@@ -122,26 +142,55 @@ export function TaskManager() {
                 </div>
             )}
 
-            {/* Add Task */}
-            <div className="flex flex-col gap-2 p-4 border rounded-lg bg-gray-50 dark:bg-zinc-900">
-                <h3 className="font-semibold text-sm text-gray-500">New Task</h3>
-                <div className="flex gap-2">
-                    <select
-                        className="border p-2 rounded dark:bg-zinc-800 dark:border-zinc-700"
-                        value={selectedProjectId}
-                        onChange={e => setSelectedProjectId(e.target.value)}
+            {/* Start Tracking */}
+            <div className="flex flex-col gap-3 p-4 border rounded-lg bg-gray-50 dark:bg-zinc-900">
+                <h3 className="font-semibold text-sm text-gray-500">Start Tracking</h3>
+
+                <div className="flex flex-col gap-2">
+                    {/* Project Select */}
+                    <div className="flex flex-col">
+                        <label className="text-xs text-gray-400 mb-1">Project</label>
+                        <select
+                            className="border p-2 rounded dark:bg-zinc-800 dark:border-zinc-700"
+                            value={selectedProjectId}
+                            onChange={e => setSelectedProjectId(e.target.value)}
+                        >
+                            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Task Select or Create */}
+                    <div className="flex flex-col">
+                        <label className="text-xs text-gray-400 mb-1">Task</label>
+                        <select
+                            className="border p-2 rounded dark:bg-zinc-800 dark:border-zinc-700 disabled:opacity-50"
+                            value={selectedTaskId}
+                            onChange={e => setSelectedTaskId(e.target.value)}
+                            disabled={!selectedProjectId || !!newTaskName}
+                        >
+                            <option value="">-- Create New --</option>
+                            {projectTasks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                    </div>
+
+                    {/* New Task Input (only if no existing task selected) */}
+                    <div className={selectedTaskId ? 'opacity-50 pointer-events-none' : ''}>
+                        <input
+                            type="text"
+                            placeholder="Or type new task name..."
+                            className="w-full border p-2 rounded dark:bg-zinc-800 dark:border-zinc-700"
+                            value={newTaskName}
+                            onChange={e => setNewTaskName(e.target.value)}
+                        />
+                    </div>
+
+                    <button
+                        onClick={handleStart}
+                        disabled={!selectedProjectId || (!selectedTaskId && !newTaskName)}
+                        className="bg-green-600 text-white p-3 rounded flex justify-center items-center gap-2 mt-1 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                    <input
-                        type="text"
-                        placeholder="What are you working on?"
-                        className="flex-1 border p-2 rounded dark:bg-zinc-800 dark:border-zinc-700"
-                        value={newTaskName}
-                        onChange={e => setNewTaskName(e.target.value)}
-                    />
-                    <button onClick={addTask} disabled={!selectedProjectId} className="bg-zinc-800 dark:bg-zinc-700 text-white p-2 rounded">
-                        <Plus size={20} />
+                        <Play fill="currentColor" size={20} />
+                        <span>Start Timer</span>
                     </button>
                 </div>
             </div>
