@@ -4,10 +4,14 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Project, Task, TimeEntry } from '@/lib/types'
-import { Play, Square, Plus, CheckCircle2 } from 'lucide-react'
+import { Play, Square, Plus, CheckCircle2, ChevronDown, ChevronRight, Clock } from 'lucide-react'
 import { format } from 'date-fns'
 
-export function TaskManager() {
+interface TaskManagerProps {
+    onEntryChange?: () => void
+}
+
+export function TaskManager({ onEntryChange }: TaskManagerProps) {
     const [projects, setProjects] = useState<Project[]>([])
     const [tasks, setTasks] = useState<Task[]>([])
     const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null)
@@ -17,6 +21,10 @@ export function TaskManager() {
     const [newTaskName, setNewTaskName] = useState('')
     const [selectedProjectId, setSelectedProjectId] = useState<string>('')
     const [selectedTaskId, setSelectedTaskId] = useState<string>('')
+    const [isQuickStartOpen, setIsQuickStartOpen] = useState(false)
+    const [isManualMode, setIsManualMode] = useState(false)
+    const [manualStartTime, setManualStartTime] = useState('')
+    const [manualEndTime, setManualEndTime] = useState('')
 
     // Timer Local State
     const [elapsed, setElapsed] = useState(0)
@@ -61,6 +69,8 @@ export function TaskManager() {
         if (entriesData && entriesData.length > 0) setActiveEntry(entriesData[0])
     }
 
+
+
     async function handleStart() {
         if (!selectedProjectId) return
 
@@ -81,8 +91,32 @@ export function TaskManager() {
         }
 
         if (taskId) {
-            await startTimer(taskId)
-            setSelectedTaskId('') // Reset selection after start
+            if (isManualMode && manualStartTime && manualEndTime) {
+                // Manual Entry
+                // Combine today's date with the time strings
+                const today = format(new Date(), 'yyyy-MM-dd')
+                const startDateTime = new Date(`${today}T${manualStartTime}:00`).toISOString()
+                const endDateTime = new Date(`${today}T${manualEndTime}:00`).toISOString()
+
+                const { error } = await supabase.from('time_entries').insert([{
+                    task_id: taskId,
+                    start_time: startDateTime,
+                    end_time: endDateTime
+                }])
+
+                if (!error) {
+                    // Reset manual fields
+                    setManualStartTime('')
+                    setManualEndTime('')
+                    setIsManualMode(false)
+                    setSelectedTaskId('')
+                    if (onEntryChange) onEntryChange()
+                }
+            } else {
+                // Start Timer
+                await startTimer(taskId)
+                setSelectedTaskId('') // Reset selection after start
+            }
         }
     }
 
@@ -97,7 +131,10 @@ export function TaskManager() {
             start_time: new Date().toISOString()
         }]).select()
 
-        if (data) setActiveEntry(data[0])
+        if (data) {
+            setActiveEntry(data[0])
+            if (onEntryChange) onEntryChange()
+        }
     }
 
     async function stopTimer() {
@@ -108,6 +145,7 @@ export function TaskManager() {
         }).eq('id', activeEntry.id)
 
         setActiveEntry(null)
+        if (onEntryChange) onEntryChange()
     }
 
     const formatTime = (seconds: number) => {
@@ -144,7 +182,16 @@ export function TaskManager() {
 
             {/* Start Tracking */}
             <div className="flex flex-col gap-3 p-4 border rounded-lg bg-gray-50 dark:bg-zinc-900">
-                <h3 className="font-semibold text-sm text-gray-500">Start Tracking</h3>
+                <div className="flex justify-between items-center">
+                    <h3 className="font-semibold text-sm text-gray-500">Start Tracking</h3>
+                    <button
+                        onClick={() => setIsManualMode(!isManualMode)}
+                        className={`text-xs flex items-center gap-1 ${isManualMode ? 'text-blue-600 font-bold' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                        <Clock size={14} />
+                        Manual Entry
+                    </button>
+                </div>
 
                 <div className="flex flex-col gap-2">
                     {/* Project Select */}
@@ -184,21 +231,52 @@ export function TaskManager() {
                         />
                     </div>
 
+                    {/* Manual Entry Inputs */}
+                    {isManualMode && (
+                        <div className="flex gap-2">
+                            <div className="flex-1">
+                                <label className="text-xs text-gray-400 mb-1">Start Time</label>
+                                <input
+                                    type="time"
+                                    className="w-full border p-2 rounded dark:bg-zinc-800 dark:border-zinc-700"
+                                    value={manualStartTime}
+                                    onChange={e => setManualStartTime(e.target.value)}
+                                />
+                            </div>
+                            <div className="flex-1">
+                                <label className="text-xs text-gray-400 mb-1">End Time</label>
+                                <input
+                                    type="time"
+                                    className="w-full border p-2 rounded dark:bg-zinc-800 dark:border-zinc-700"
+                                    value={manualEndTime}
+                                    onChange={e => setManualEndTime(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                    )}
+
                     <button
                         onClick={handleStart}
-                        disabled={!selectedProjectId || (!selectedTaskId && !newTaskName)}
+                        disabled={!selectedProjectId || (!selectedTaskId && !newTaskName) || (isManualMode && (!manualStartTime || !manualEndTime))}
                         className="bg-green-600 text-white p-3 rounded flex justify-center items-center gap-2 mt-1 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        <Play fill="currentColor" size={20} />
-                        <span>Start Timer</span>
+                        {isManualMode ? <CheckCircle2 size={20} /> : <Play fill="currentColor" size={20} />}
+                        <span>{isManualMode ? 'Log Entry' : 'Start Timer'}</span>
                     </button>
                 </div>
             </div>
 
             {/* Task List */}
             <div className="space-y-2">
-                <h3 className="font-semibold text-lg">Quick Start</h3>
-                {tasks.map(task => (
+                <button
+                    onClick={() => setIsQuickStartOpen(!isQuickStartOpen)}
+                    className="flex items-center gap-2 w-full text-left"
+                >
+                    {isQuickStartOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                    <h3 className="font-semibold text-lg">Quick Start</h3>
+                </button>
+
+                {isQuickStartOpen && tasks.map(task => (
                     <div key={task.id} className="flex items-center justify-between p-3 bg-white dark:bg-zinc-900 border rounded hover:shadow-sm transition-shadow">
                         <div>
                             <p className="font-medium">{task.name}</p>

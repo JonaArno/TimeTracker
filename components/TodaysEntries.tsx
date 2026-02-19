@@ -8,14 +8,18 @@ import { format, parseISO, differenceInSeconds, addDays, subDays, startOfDay, en
 import { EditEntryModal } from '@/components/EditEntryModal'
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Pencil } from 'lucide-react'
 
-export function TodaysEntries() {
+interface TodaysEntriesProps {
+    refreshTrigger?: number
+}
+
+export function TodaysEntries({ refreshTrigger = 0 }: TodaysEntriesProps) {
     const [entries, setEntries] = useState<(TimeEntry & { task: Task & { project: Project } })[]>([])
     const [selectedDate, setSelectedDate] = useState(new Date())
     const [editingEntry, setEditingEntry] = useState<(TimeEntry & { task: Task & { project: Project } }) | null>(null)
 
     useEffect(() => {
         fetchEntries()
-    }, [selectedDate])
+    }, [selectedDate, refreshTrigger])
 
     async function fetchEntries() {
         const start = startOfDay(selectedDate).toISOString()
